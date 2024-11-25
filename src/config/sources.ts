@@ -1,16 +1,18 @@
-import { ChangelogSource } from "../types/changelog";
+export interface ChangelogSource {
+  name: string;
+  url: string;
+  selector: string;
+}
 
 export const changelogSources: ChangelogSource[] = [
+  // {
+  //   name: "Jira Cloud",
+  //   url: "https://developer.atlassian.com/cloud/jira/platform/changelog/",
+  //   selector: "#changelogContentWrapperTop"
+  // },
   {
-    name: "Jira Cloud",
-    url: "https://developer.atlassian.com/cloud/jira/platform/changelog/",
-    selector: ".changelog-entry",
-    type: "html",
-  },
-  {
-    name: "Jira Server",
-    url: "https://developer.atlassian.com/server/jira/platform/changelog/",
-    selector: ".changelog-entry",
-    type: "html",
+    name: "Slack",
+    url: "https://api.slack.com/changelog",
+    selector: ".apiDocsLayout__gridMainContent",
   },
 ];
