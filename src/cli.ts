@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { ChangelogMonitor } from "./index";
-import { ScraperService } from "./services";
+import { ScraperService } from "./services/scraper";
 
 const program = new Command();
 

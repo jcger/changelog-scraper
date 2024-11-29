@@ -1,10 +1,9 @@
-import OpenAI from "openai";
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { ChangelogSource } from "../config/sources";
+import { ChangelogSelectors, ChangelogSource } from "../config/sources";
 import path from "path";
 import fs from "fs/promises";
-// import { createHash } from "crypto";
+import { htmlToText } from "html-to-text";
 
 export interface ChangelogEntry {
   date: Date;
@@ -15,67 +14,79 @@ export interface ChangelogEntry {
   hash: string; // To track if we've seen this entry before
 }
 
-const PLACEHOLDER = "___HTML___";
 export class ScraperService {
-  private prompt = `Given this html ${PLACEHOLDER}, return a json with `;
-  private cleanHtml({ html, selector }: { html: string; selector: string }) {
-    console.log({ html: html.slice(0, 100) });
+  private generatePrompt = ({ changelog }: { changelog: string }) => {
+    return `You are a changelog parser. Your only task is to convert the provided changelog into the following JSON format:
+
+{
+  "changes": [
+    {
+      "date": "anouncement date in DD-MM-YYYY format"
+      "type": "added|changed|fixed|removed|deprecated|unknown",
+      "description": "string",
+    }
+  ]
+}
+
+Rules:
+1. Only parse the actual changelog content
+2. Classify each change into one of the predefined types
+3. Keep descriptions concise but preserve the original meaning
+4. If change type is unclear, default to "unknown"
+5. Remove any HTML formatting from descriptions
+
+Here is the changelog:
+${changelog}`;
+  };
+
+  private convertToText({
+    html,
+    cardSelector,
+  }: {
+    html: string;
+    cardSelector: ChangelogSelectors;
+  }) {
     const $ = cheerio.load(html);
 
-    $("script").remove();
-    $("svg").remove();
-    $("style").remove();
-    $('link[rel="stylesheet"]').remove();
-    $("*").removeAttr("style");
+    let output = "";
+    $(cardSelector)
+      .slice(0, 6)
+      .each((_, element) => {
+        output += htmlToText($(element).html() || "") + "\n\n";
+      });
 
-    const selectorName = selector.slice(1, selector.length);
-    $("*").each((_, element) => {
-      const attributes = $(element).attr();
-      for (const attr in attributes) {
-        if (
-          attr === "class" &&
-          !$(element).attr("class")?.includes(selectorName)
-        ) {
-          $(element).removeAttr(attr);
-        }
-        if (attr !== "href" && attr !== "id" && attr !== "class") {
-          $(element).removeAttr(attr);
-        }
-      }
-    });
-
-    return $(selector).html();
+    return output;
   }
 
-  private async format({ html }: { html: string }) {
-    // create prompt that formats the html into a json that looks like:
-    // {entryDate, type, title, link}
+  private async aiFormatter({ prompt }: { prompt: string }) {
     const {
-      OPENAI_API_KEY: apiKey,
-      OPENAI_MODEL: model = "gpt-4o",
-      OPENAI_TEMPERATURE: temperature = 0.2,
+      GOOGLE_API_KEY: apiKey = process.env.GEMINI_API_KEY,
+      GOOGLE_MODEL: model = "gemini-1.5-flash",
+      GOOGLE_TEMPERATURE: temperature = 0.5,
     } = process.env;
 
     if (!apiKey) {
-      console.error("Missing env variable: OPENAI_API_KEY");
+      console.error("Missing env variable: GOOGLE_API_KEY");
       process.exit(1);
     }
 
-    const openai = new OpenAI({
-      apiKey,
-    });
-
-    const prompt = "";
+    const { GoogleGenerativeAI } = require("@google/generative-ai");
+    const genAI = new GoogleGenerativeAI(apiKey);
 
     try {
-      const completion = await openai.chat.completions.create({
-        messages: [{ role: "user", content: prompt }],
-        model,
+      const generativeModel = genAI.getGenerativeModel({ model });
+
+      const result = await generativeModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature,
+        },
       });
 
-      return completion.choices[0]?.message?.content || "No response";
+      const response = await result.response;
+      return response.text() || "No response";
     } catch (error) {
-      console.error("Error calling ChatGPT:", error);
+      console.error("Error calling Google Generative AI:", error);
       throw error;
     }
   }
@@ -85,8 +96,10 @@ export class ScraperService {
     try {
       const filePath = path.join(
         process.cwd(),
+        ".tmp",
         "responses",
-        "slack-changelog.html",
+        // "slack-changelog.html",
+        "jira-changelog.html",
       );
       // await fs.writeFile(filePath, html);
       return await fs.readFile(filePath, "utf-8");
@@ -96,16 +109,32 @@ export class ScraperService {
     }
   }
 
-  // private generateHash({ html }: { html: string }): string {
-  //   return createHash("md5").update(html).digest("hex");
-  // }
-
   public async run(source: ChangelogSource) {
     const html = await this.fetchChangelog({ source });
-    // console.log({ html });
-    const cleanHtml = this.cleanHtml({ html, selector: source.selector });
-    console.log({ cleanHtml });
-    // const data = this.format({ html: cleanHtml });
-    // console.log({ data });
+    const changelogAsText = this.convertToText({
+      html,
+      cardSelector: source.cardSelector,
+    });
+    await fs.writeFile(
+      path.join(process.cwd(), ".tmp", "clean.txt"),
+      changelogAsText,
+    );
+    // console.log({ changelogAsText });
+    if (!changelogAsText) {
+      throw new Error(`No HTML scrapped for ${source.url}`);
+    }
+    const prompt = this.generatePrompt({ changelog: changelogAsText });
+    await fs.writeFile(path.join(process.cwd(), ".tmp", "prompt.txt"), prompt);
+    const data = await this.aiFormatter({ prompt });
+
+    await fs.writeFile(path.join(process.cwd(), ".tmp", "output.txt"), data);
+    // console.log(data);
+
+    const evaluationPrompt = `Score from 0 to 10 the output of this prompt ${prompt}. The output is ${data}`;
+
+    await fs.writeFile(
+      path.join(process.cwd(), ".tmp", "evaluationPrompt.txt"),
+      evaluationPrompt,
+    );
   }
 }
