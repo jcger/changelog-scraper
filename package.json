@@ -2,7 +2,7 @@
   "name": "changelog-monitor",
   "version": "1.0.0",
   "scripts": {
-    "scrap": "node -r ts-node/register --env-file=.env ./src/cli start"
+    "start": "node -r ts-node/register --env-file=.env ./src/cli start"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
