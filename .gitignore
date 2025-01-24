@@ -6,3 +6,4 @@ npm-debug.log
 .DS_Store
 .data
 .tmp
+src/config/sources.ts
