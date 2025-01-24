@@ -19,13 +19,15 @@ export class ChangelogMonitor {
   }): Promise<void> {
     for (const source of changelogSources) {
       try {
-        const html = await this.scraper.run({ url: source.url });
         // TODO: Load from DB
         const previousChangelog = "";
+
+        const html = await this.scraper.run({ url: source.url });
         const newChangelog = htmlToTextStrategy({
           html,
           cardSelector: source.cardSelector,
         });
+
         const prompt = promptFactory({ previousChangelog, newChangelog });
         console.log(prompt);
       } catch (error) {
